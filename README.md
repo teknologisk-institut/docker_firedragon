@@ -3,11 +3,60 @@
 This project provides a complete robotics system (LiDAR driver, drone landing spot detection, and more) in a ready-to-use Docker container.
 
 ---
+## Pre: Set Up MAVProxy on the Host (for FCU Over Serial)
+
+If you use a physical FCU over USB/serial, we recommend:
+
+- The host PC talks to the FCU via serial (e.g. /dev/ttyACM0) and forwards MAVLink over UDP.
+- The container connects to MAVLink over UDP, via MAVLINK_URL=udp:127.0.0.1:14550
+
+### 1. Install MAVProxy (host)
+
+On Ubuntu / Debian:
+
+```bash
+sudo apt-get install python3-dev python3-opencv python3-wxgtk4.0 python3-pip python3-matplotlib python3-lxml python3-pygame
+python3 -m pip install PyYAML mavproxy --user
+```
+
+Ensure ~/.local/bin is on your PATH (log out/in or):
+
+```bash
+echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Test:
+
+```bash
+mavproxy.py --help
+```
+
+### 2. Run MAVProxy to forward serial → UDP
+
+Confirm your FCU device:
+
+```bash
+ls -l /dev/ttyACM*
+```
+
+Make sure no other program (Mission Planner, QGC, etc.) is using the same port.
+Start MAVProxy on the host:
+
+```bash
+mavproxy.py \
+  --master=/dev/ttyACM0 \
+  --baudrate 921600 \
+  --out=udp:127.0.0.1:14550
+```
+Leave this running while the container is running.
+
+---
 
 ## 🚀 1. Pull the Docker Image
 
 ```bash
-docker pull ghcr.io/teknologisk-institut/firedragon:v1.3.0
+docker pull ghcr.io/teknologisk-institut/firedragon:v1.4.1
 ```
 This downloads the FireDragon image to your computer.
 
@@ -25,7 +74,7 @@ docker run --rm -it --network=host --ipc=host --pid=host \
     -e DISABLE_LOGS=false \
     -e DISPLAY=$DISPLAY \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
-    ghcr.io/teknologisk-institut/firedragon:v1.3.0
+    ghcr.io/teknologisk-institut/firedragon:v1.4.1
 ```
 
 ---
@@ -45,11 +94,11 @@ xhost +local:root
 docker run --rm -it --network=host --ipc=host --pid=host \
     -e BROADCAST_CODE=YOURCODE \
     -e MAVLINK_URL=tcp:127.0.0.1:5760 \
-    -e RVIZ=false \
+    -e RVIZ=true \
     -e DISABLE_LOGS=false \
     -e DISPLAY=$DISPLAY \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
-    ghcr.io/teknologisk-institut/firedragon:v1.3.0
+    ghcr.io/teknologisk-institut/firedragon:v1.4.1
 ```
 
 ---
@@ -81,6 +130,7 @@ You control how FireDragon runs using these **environment variables** (the `-e N
 | `MAVLINK_URL`   | Sets how the system connects to your drone’s autopilot (MAVLink interface).            | TCP: `tcp:127.0.0.1:5760` <br> Serial: `serial:/dev/ttyUSB0:921600` <br> UDP: `udp:14550`|
 | `RVIZ`          | If `true`, opens a 3D visualization GUI called RViz. If `false`, RViz is not started.  | `true` or `false`                                          |
 | `DISABLE_LOGS`  | If `true`, disables info/debug logs (less console output). If `false`, normal output.  | `true` or `false`                                          |
+| `RECORD_BAG`    | If `false`, disables rosbag recording. If `true`, a rosbag is recorded and saved on host. To save bags on the host, bind‑mount a directory. On the host, create a folder for bags (once): mkdir -p ~/firedragon_bags  | `true` or `false`                                          |
 
 ---
 
@@ -113,6 +163,40 @@ You control how FireDragon runs using these **environment variables** (the `-e N
   ```
   -e DISABLE_LOGS=true
   ```
+
+- **Save data through ros bags:**
+  ```
+  -e RECORD_BAG=true
+  ```
+
+  To save bags on the host, bind‑mount a directory.
+
+  On the host, create a folder for bags (once):
+  ```bash
+    mkdir -p ~/firedragon_bags
+  ```
+
+  Run the container with the bags directory mounted to /bags:
+  ```bash
+    docker run --rm -it \
+      --network=host --ipc=host --pid=host \
+      -e BROADCAST_CODE=YOUR_LIVOX_CODE \
+      -e MAVLINK_URL=udp:127.0.0.1:14550 \
+      -e RVIZ=true \
+      -e DISABLE_LOGS=false \
+      -e RECORD_BAG=true \
+      -e DISPLAY=$DISPLAY \
+      -v /tmp/.X11-unix:/tmp/.X11-unix \
+      -v ~/firedragon_bags:/bags \
+      ghcr.io/teknologisk-institut/firedragon:v1.4.1
+  ```
+
+  After you stop the container, bags will be in:
+  ```bash
+  ls ~/firedragon_bags
+  # e.g. rosbag2_YYYY_MM_DD-HH_MM_SS/
+  ```
+  ros2 bag automatically uses timestamped directory names (e.g. rosbag2_2025_11_27-15_34_12).
 
 ---
 
@@ -167,28 +251,33 @@ docker run --rm -it --network=host --ipc=host --pid=host \
     -e BROADCAST_CODE=0T9DFBC00401611 \
     -e MAVLINK_URL=tcp:127.0.0.1:5760 \
     -e RVIZ=false \
+    -e RECORD_BAG=false \
     -e DISABLE_LOGS=false \
-    ghcr.io/teknologisk-institut/firedragon:v1.3.0
+    ghcr.io/teknologisk-institut/firedragon:v1.4.1
 ```
 
 ### Start with RViz GUI (Linux X11 required):
 ```bash
-docker run --rm -it --network=host --ipc=host --pid=host \
-    -e BROADCAST_CODE=YOUR_CODE \
-    -e MAVLINK_URL=serial:/dev/ttyUSB0:921600 \
-    -e RVIZ=true \
-    -e DISPLAY=$DISPLAY \
-    -v /tmp/.X11-unix:/tmp/.X11-unix \
-    ghcr.io/teknologisk-institut/firedragon:v1.3.0
+docker run --rm -it \
+  --network=host --ipc=host --pid=host \
+  -e BROADCAST_CODE=0T9DFBC00401611 \
+  -e MAVLINK_URL=udp:127.0.0.1:14550 \
+  -e RVIZ=true \
+  -e DISABLE_LOGS=false \
+  -e RECORD_BAG=true \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v ~/firedragon_bags:/bags \
+  ghcr.io/teknologisk-institut/firedragon:v1.4.1
 ```
 
 ### Start in quiet mode:
 ```bash
 docker run --rm -it --network=host --ipc=host --pid=host \
-    -e BROADCAST_CODE=YOUR_CODE \
+    -e BROADCAST_CODE=0T9DFBC00401611 \
     -e MAVLINK_URL=udp:14550 \
     -e DISABLE_LOGS=true \
-    ghcr.io/teknologisk-institut/firedragon:v1.3.0
+    ghcr.io/teknologisk-institut/firedragon:v1.4.1
 ```
 
 ---
